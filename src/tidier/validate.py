@@ -21,7 +21,7 @@ def sanitize_subfolder(sub: str | None) -> str | None:
     if not sub:
         return None
     s = sanitize_title(sub, max_len=40)
-    if s == "untitled" or s in {".", ".."} or ".." in s.split("-"):
+    if s == "untitled" or s in {".", ".."}:
         return None
     return s
 

@@ -69,10 +69,19 @@ def run(config: Path | None = typer.Option(None, "--config", "-c")):
             if llm is None:
                 llm = _llm(cfg)
             for p in db.pending():
+                path = Path(p)
+                if not path.is_file():
+                    db.set_status(p, "failed")
+                    continue
                 # hold model-dependent files while Ollama is down; rule and
                 # cache-covered files can still be processed offline
-                if llm is None and needs_model(Path(p), cfg, db):
-                    continue
+                if llm is None:
+                    try:
+                        hold = needs_model(path, cfg, db)
+                    except OSError:
+                        hold = False
+                    if hold:
+                        continue
                 ok = _process_path(Path(p), cfg, db, llm, dry=False)
                 db.set_status(p, "done" if ok else "failed")
             time.sleep(1)

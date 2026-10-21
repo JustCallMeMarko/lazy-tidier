@@ -34,3 +34,10 @@ def test_validate_rejects_bad_category():
 
 def test_validate_clamps_confidence():
     assert validate(cls(confidence=1.7), CATS, 0.65).confidence == 1.0
+
+
+def test_subfolder_with_dots_kept():
+    from tidier.validate import sanitize_subfolder
+    assert sanitize_subfolder("phase-..-draft") == "phase-..-draft"
+    assert sanitize_subfolder("..") is None
+    assert sanitize_subfolder("a/b") == "a-b"

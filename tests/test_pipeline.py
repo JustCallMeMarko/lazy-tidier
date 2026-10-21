@@ -141,3 +141,11 @@ def test_needs_model(cfg, db):
     assert needs_model(txt, cfg, db)
     plan_file(txt, cfg, db, FakeLLM(good()))  # now cached
     assert not needs_model(txt, cfg, db)
+
+
+def test_needs_model_missing_and_unsupported(cfg, db):
+    from tidier.pipeline import needs_model
+    cfg.watch.mkdir(parents=True, exist_ok=True)
+    assert needs_model(cfg.watch / "gone.txt", cfg, db) is False
+    csv = cfg.watch / "data.csv"; csv.write_text("a,b\n1,2")
+    assert needs_model(csv, cfg, db) is False  # nothing extractable → _Review w/o model

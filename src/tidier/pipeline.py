@@ -55,10 +55,19 @@ def is_stable(path: Path, polls: int = 3, interval: float = 2.0) -> bool:
 
 
 def needs_model(path: Path, cfg: Config, db: DB) -> bool:
-    """False when the file can be routed without a model (rule or cache hit)."""
+    """False when the file can be routed without a model (rule, cache hit,
+    or nothing extractable — those go to _Review without a model call).
+    Missing/unreadable files return False; callers must tolerate the race."""
     if rules.fast_path(path):
         return False
-    return db.cache_get(mover.sha256_of(path)) is None
+    try:
+        if db.cache_get(mover.sha256_of(path)) is not None:
+            return False
+    except OSError:
+        return False
+    result = extract.extract(path)
+    extract.cleanup(result)
+    return bool(result.text or result.image_path)
 
 
 def plan_file(path: Path, cfg: Config, db: DB, llm: LLM | None) -> Plan:
