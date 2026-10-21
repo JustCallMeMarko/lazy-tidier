@@ -1,0 +1,18 @@
+# Lazy File Tidier config — copy to ~/.config/tidier/config.yaml or run from repo root.
+watch_path: ~/Downloads
+destination_root: ~/Downloads/Sorted
+ollama_host: http://localhost:11434
+models:
+  text: qwen2.5:3b
+  vision: qwen2.5vl:3b
+confidence_threshold: 0.65
+stability_polls: 3
+stability_interval: 2.0
+mode: realtime          # realtime | batch
+batch_schedule: "02:00"
+idle_only: true
+categories: [School, Receipts, IDs, Work, Media, Misc]
+private_folder: Private
+review_folder: _Review
+naming: "{date}_{category}_{title}"
+digest: true
