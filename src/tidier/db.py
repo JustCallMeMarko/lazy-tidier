@@ -117,15 +117,19 @@ class DB:
         self.conn.commit()
 
     # -- cache --
-    def cache_get(self, sha256: str) -> dict | None:
+    # Keys are "{sha256}|{filename}": the model sees the filename, so identical
+    # bytes under a different name must not inherit the first file's title.
+    def cache_get(self, key: str, model: str) -> dict | None:
         row = self.conn.execute(
-            "SELECT result_json FROM cache WHERE sha256 = ?", (sha256,)
+            "SELECT result_json, model FROM cache WHERE sha256 = ?", (key,)
         ).fetchone()
-        return json.loads(row[0]) if row else None
+        if not row or row[1] != model:
+            return None
+        return json.loads(row[0])
 
-    def cache_put(self, sha256: str, result: dict, model: str):
+    def cache_put(self, key: str, result: dict, model: str):
         self.conn.execute(
             "INSERT OR REPLACE INTO cache (sha256, result_json, model, ts) VALUES (?, ?, ?, ?)",
-            (sha256, json.dumps(result), model, _now()),
+            (key, json.dumps(result), model, _now()),
         )
         self.conn.commit()

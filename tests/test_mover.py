@@ -44,3 +44,15 @@ def test_destination_private_and_review(tmp_path):
     assert d.parent.name == "School" and d.name.endswith("lecture.pdf")
     d3 = destination(r2, src, tmp_path, "Private", "_Review", "{title}", review_reason=True)
     assert d3.parent.name == "_Review"
+
+
+def test_safe_move_never_overwrites(tmp_path):
+    dst = tmp_path / "dst" / "f.txt"
+    dst.parent.mkdir()
+    dst.write_text("existing")
+    src = tmp_path / "src" / "f.txt"
+    src.parent.mkdir()
+    src.write_text("new")
+    final = safe_move(src, dst)
+    assert final.name == "f_2.txt"
+    assert dst.read_text() == "existing" and final.read_text() == "new"

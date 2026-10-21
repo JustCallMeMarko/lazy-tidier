@@ -27,8 +27,12 @@ class _Handler(FileSystemEventHandler):
             return
         except ValueError:
             pass
-        if pipeline.is_stable(path, self.cfg.stability_polls, self.cfg.stability_interval):
-            self.db.enqueue(path)
+        # A failed stability check (still downloading) retries a bounded number
+        # of times so the finished file is not forgotten.
+        for _ in range(5):
+            if pipeline.is_stable(path, self.cfg.stability_polls, self.cfg.stability_interval):
+                self.db.enqueue(path)
+                return
 
     def on_created(self, event):
         if not event.is_directory:

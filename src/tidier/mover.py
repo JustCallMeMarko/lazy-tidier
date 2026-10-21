@@ -30,19 +30,36 @@ def resolve_collision(dst: Path) -> Path:
     raise RuntimeError(f"could not resolve collision for {dst}")
 
 
-def safe_move(src: Path, dst: Path):
-    """Move src to dst without data loss: atomic on same volume,
-    copy-hash-verify-delete across volumes."""
+def _link_into(src: Path, dst: Path) -> Path:
+    """Hard-link src to a collision-free name (atomic: never overwrites an
+    existing file), then unlink src. Returns the final destination."""
+    for i in range(1000):
+        cand = dst if i == 0 else dst.with_name(f"{dst.stem}_{i + 1}{dst.suffix}")
+        try:
+            os.link(src, cand)
+            src.unlink()
+            return cand
+        except FileExistsError:
+            continue
+    raise RuntimeError(f"could not resolve collision for {dst}")
+
+
+def safe_move(src: Path, dst: Path) -> Path:
+    """Move src toward dst without data loss or overwriting an existing file.
+    Atomic link+unlink on one volume; copy-to-temp, hash-verify, then atomic
+    link across volumes. Returns the final destination path."""
     dst.parent.mkdir(parents=True, exist_ok=True)
     if src.stat().st_dev == dst.parent.stat().st_dev:
-        os.replace(src, dst)
-        return
+        return _link_into(src, dst)
     digest = sha256_of(src)
-    shutil.copy2(src, dst)
-    if sha256_of(dst) != digest:
-        dst.unlink(missing_ok=True)
-        raise OSError(f"copy verification failed for {src}")
-    src.unlink()
+    tmp = dst.with_name(dst.name + ".tidier-partial")
+    try:
+        shutil.copy2(src, tmp)
+        if sha256_of(tmp) != digest:
+            raise OSError(f"copy verification failed for {src}")
+        return _link_into(tmp, dst)
+    finally:
+        tmp.unlink(missing_ok=True)
 
 
 def build_name(result: Classification, ext: str, naming: str, fallback_ts: float) -> str:

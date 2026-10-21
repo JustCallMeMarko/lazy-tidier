@@ -35,9 +35,8 @@ def test_sensitive_goes_private_and_not_cached(cfg, db):
     f.write_text("passport no 123")
     plan = plan_file(f, cfg, db, FakeLLM(good(category="IDs", sensitive=True)))
     assert plan.dst.parent.name == "Private"
-    assert db.cache_get("anything") is None
     from tidier.mover import sha256_of
-    assert db.cache_get(sha256_of(f)) is None  # sensitive text never cached
+    assert db.cache_get(f"{sha256_of(f)}|{f.name}", cfg.models.text) is None  # sensitive text never cached
 
 
 def test_cache_hit_skips_llm(cfg, db):

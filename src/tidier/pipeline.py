@@ -54,6 +54,10 @@ def is_stable(path: Path, polls: int = 3, interval: float = 2.0) -> bool:
     return True
 
 
+def _cache_key(path: Path) -> str:
+    return f"{mover.sha256_of(path)}|{path.name}"
+
+
 def needs_model(path: Path, cfg: Config, db: DB) -> bool:
     """False when the file can be routed without a model (rule, cache hit,
     or nothing extractable — those go to _Review without a model call).
@@ -62,7 +66,8 @@ def needs_model(path: Path, cfg: Config, db: DB) -> bool:
     if rules.fast_path(path):
         return False
     try:
-        if db.cache_get(mover.sha256_of(path)) is not None:
+        if db.cache_get(_cache_key(path), cfg.models.text) is not None or \
+                db.cache_get(_cache_key(path), cfg.models.vision) is not None:
             return False
     except OSError:
         return True
@@ -79,8 +84,9 @@ def plan_file(path: Path, cfg: Config, db: DB, llm: LLM | None) -> Plan:
     if folder:
         return Plan(path, dst_root / folder / path.name, folder, 1.0, False, "rule")
 
-    sha = mover.sha256_of(path)
-    if cached := db.cache_get(sha):
+    cached = db.cache_get(_cache_key(path), cfg.models.text) or \
+        db.cache_get(_cache_key(path), cfg.models.vision)
+    if cached:
         result = Classification.model_validate(cached)
         if result.confidence < cfg.confidence_threshold and not result.sensitive:
             return Plan(path, dst_root / cfg.review_folder / path.name,
@@ -95,9 +101,11 @@ def plan_file(path: Path, cfg: Config, db: DB, llm: LLM | None) -> Plan:
                     "review", "no model available")
 
     result_ex = extract.extract(path)
+    model_used = cfg.models.text
     try:
-        if result_ex.image_path and not result_ex.text:
+        if result_ex.image_path and (result_ex.kind == "image" or not result_ex.text):
             cls = llm.classify_image(path.name, result_ex.image_path)
+            model_used = cfg.models.vision
         elif result_ex.text:
             cls = llm.classify_text(path.name, result_ex.text)
         else:
@@ -116,7 +124,7 @@ def plan_file(path: Path, cfg: Config, db: DB, llm: LLM | None) -> Plan:
                     cls.confidence, cls.sensitive, "review", "bad category")
 
     if not result.sensitive:
-        db.cache_put(sha, result.model_dump(), llm.text_model)
+        db.cache_put(_cache_key(path), result.model_dump(), model_used)
 
     if result.confidence < cfg.confidence_threshold and not result.sensitive:
         return Plan(path, dst_root / cfg.review_folder / path.name, result.category,
@@ -129,9 +137,8 @@ def plan_file(path: Path, cfg: Config, db: DB, llm: LLM | None) -> Plan:
 
 def execute(plan: Plan, cfg: Config, db: DB) -> Path:
     """Perform a planned move and log it. Returns final destination."""
-    dst = mover.resolve_collision(plan.dst)
     sha = mover.sha256_of(plan.src)
-    mover.safe_move(plan.src, dst)
+    dst = mover.safe_move(plan.src, plan.dst)
     db.log_move(plan.src, dst, sha, plan.category, plan.confidence, plan.sensitive)
     return dst
 
