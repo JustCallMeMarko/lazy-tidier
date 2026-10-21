@@ -1,4 +1,0 @@
-INVOICE
-From: Coffee Shop
-Total: $4.50
-Date: 2026-10-18
