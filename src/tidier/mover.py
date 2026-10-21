@@ -72,7 +72,11 @@ def destination(
     folder = root / result.category
     if result.subfolder:
         folder = folder / result.subfolder
-    return folder / build_name(result, ext, naming, src.stat().st_mtime)
+    dst = folder / build_name(result, ext, naming, src.stat().st_mtime)
+    # model-supplied path parts can never escape the sorted root
+    if not dst.resolve().is_relative_to(root.resolve()):
+        return root / review_folder / src.name
+    return dst
 
 
 def undo_move(dst: Path, src: Path):

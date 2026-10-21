@@ -12,7 +12,7 @@ from .db import DB
 from .digest import digest as make_digest
 from .llm import LLM
 from .mover import undo_move
-from .pipeline import plan_file, process
+from .pipeline import needs_model, plan_file, process
 from .rules import is_temporary
 from .watcher import watch
 
@@ -42,14 +42,16 @@ def _print_plan(plan, dry_run: bool):
     typer.echo(f"  {plan.src.name} {arrow} {plan.dst}  {tag}")
 
 
-def _process_path(path: Path, cfg: Config, db: DB, llm: LLM | None, dry: bool):
+def _process_path(path: Path, cfg: Config, db: DB, llm: LLM | None, dry: bool) -> bool:
     if not path.is_file() or is_temporary(path):
-        return
+        return True
     try:
         plan = process(path, cfg, db, llm, dry)
         _print_plan(plan, dry)
+        return True
     except Exception as e:
         typer.echo(f"  {path.name}: failed ({e})", err=True)
+        return False
 
 
 @app.command()
@@ -67,8 +69,12 @@ def run(config: Path | None = typer.Option(None, "--config", "-c")):
             if llm is None:
                 llm = _llm(cfg)
             for p in db.pending():
-                _process_path(Path(p), cfg, db, llm, dry=False)
-                db.set_status(p, "done")
+                # hold model-dependent files while Ollama is down; rule and
+                # cache-covered files can still be processed offline
+                if llm is None and needs_model(Path(p), cfg, db):
+                    continue
+                ok = _process_path(Path(p), cfg, db, llm, dry=False)
+                db.set_status(p, "done" if ok else "failed")
             time.sleep(1)
     except KeyboardInterrupt:
         pass

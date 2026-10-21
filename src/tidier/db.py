@@ -49,8 +49,12 @@ class DB:
 
     # -- queue --
     def enqueue(self, path: Path):
+        # A new file at a previously processed path is a fresh job; a path that is
+        # pending/processing is already covered (dedupe duplicate fs events).
         self.conn.execute(
-            "INSERT OR IGNORE INTO queue (path, status, enqueued_at) VALUES (?, 'pending', ?)",
+            "INSERT INTO queue (path, status, enqueued_at) VALUES (?, 'pending', ?) "
+            "ON CONFLICT(path) DO UPDATE SET status = 'pending', enqueued_at = excluded.enqueued_at "
+            "WHERE queue.status IN ('done', 'failed')",
             (str(path), _now()),
         )
         self.conn.commit()
