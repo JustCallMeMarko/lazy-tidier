@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 
 from tidier.llm import Classification
@@ -56,3 +58,26 @@ def test_safe_move_never_overwrites(tmp_path):
     final = safe_move(src, dst)
     assert final.name == "f_2.txt"
     assert dst.read_text() == "existing" and final.read_text() == "new"
+
+
+def test_cross_volume_removes_source(tmp_path, monkeypatch):
+    # simulate differing st_dev so safe_move takes the copy-verify path
+    src = tmp_path / "src" / "f.txt"; src.parent.mkdir(); src.write_text("data")
+    dst = tmp_path / "dst" / "f.txt"; dst.parent.mkdir()
+    real_stat = Path.stat
+
+    class FakeStat:
+        def __init__(self, r, dev):
+            self._r = r
+            self.st_dev = dev
+        def __getattr__(self, n):
+            return getattr(self._r, n)
+
+    def fake_stat(self, *a, **k):
+        r = real_stat(self, *a, **k)
+        dev = 1 if str(self).startswith(str(tmp_path / "src")) else 2
+        return FakeStat(r, dev)
+
+    monkeypatch.setattr(Path, "stat", fake_stat)
+    final = safe_move(src, dst)
+    assert final.read_text() == "data" and not src.exists()

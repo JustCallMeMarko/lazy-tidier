@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import os
 import shutil
+import tempfile
 from datetime import datetime
 from pathlib import Path
 
@@ -31,16 +32,28 @@ def resolve_collision(dst: Path) -> Path:
 
 
 def _link_into(src: Path, dst: Path) -> Path:
-    """Hard-link src to a collision-free name (atomic: never overwrites an
-    existing file), then unlink src. Returns the final destination."""
+    """Link src to a collision-free name (atomic: never overwrites an
+    existing file), then unlink src. Falls back to an exclusive-create
+    copy on filesystems without hard links. Returns the final destination."""
     for i in range(1000):
         cand = dst if i == 0 else dst.with_name(f"{dst.stem}_{i + 1}{dst.suffix}")
         try:
             os.link(src, cand)
-            src.unlink()
-            return cand
         except FileExistsError:
             continue
+        except OSError:
+            # no hard links on this fs (e.g. FAT, some network mounts)
+            try:
+                with src.open("rb") as inp, cand.open("xb") as out:
+                    shutil.copyfileobj(inp, out)
+                shutil.copystat(src, cand)
+            except FileExistsError:
+                continue
+            except OSError:
+                cand.unlink(missing_ok=True)
+                raise
+        src.unlink()
+        return cand
     raise RuntimeError(f"could not resolve collision for {dst}")
 
 
@@ -52,12 +65,17 @@ def safe_move(src: Path, dst: Path) -> Path:
     if src.stat().st_dev == dst.parent.stat().st_dev:
         return _link_into(src, dst)
     digest = sha256_of(src)
-    tmp = dst.with_name(dst.name + ".tidier-partial")
+    fd, tmp_name = tempfile.mkstemp(dir=dst.parent, prefix=".tidier-partial-")
+    tmp = Path(tmp_name)
     try:
-        shutil.copy2(src, tmp)
+        with os.fdopen(fd, "wb") as out, src.open("rb") as inp:
+            shutil.copyfileobj(inp, out)
+        shutil.copystat(src, tmp)
         if sha256_of(tmp) != digest:
             raise OSError(f"copy verification failed for {src}")
-        return _link_into(tmp, dst)
+        final = _link_into(tmp, dst)
+        src.unlink()
+        return final
     finally:
         tmp.unlink(missing_ok=True)
 
