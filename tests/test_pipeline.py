@@ -146,6 +146,6 @@ def test_needs_model(cfg, db):
 def test_needs_model_missing_and_unsupported(cfg, db):
     from tidier.pipeline import needs_model
     cfg.watch.mkdir(parents=True, exist_ok=True)
-    assert needs_model(cfg.watch / "gone.txt", cfg, db) is False
+    assert needs_model(cfg.watch / "gone.txt", cfg, db) is True  # unreadable → held for retry
     csv = cfg.watch / "data.csv"; csv.write_text("a,b\n1,2")
     assert needs_model(csv, cfg, db) is False  # nothing extractable → _Review w/o model

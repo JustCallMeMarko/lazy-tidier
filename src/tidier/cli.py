@@ -64,6 +64,9 @@ def run(config: Path | None = typer.Option(None, "--config", "-c")):
     cfg.watch.mkdir(parents=True, exist_ok=True)
     observer = watch(cfg, db)
     typer.echo(f"Watching {cfg.watch} -> {cfg.root}  (Ctrl+C to stop)")
+    # memoize offline hold decisions per (path, size, mtime) so extraction
+    # isn't re-run every poll while Ollama is down
+    hold_cache: dict[str, tuple[tuple[int, float], bool]] = {}
     try:
         while True:
             if llm is None:
@@ -71,16 +74,22 @@ def run(config: Path | None = typer.Option(None, "--config", "-c")):
             for p in db.pending():
                 path = Path(p)
                 if not path.is_file():
+                    hold_cache.pop(p, None)
                     db.set_status(p, "failed")
                     continue
                 # hold model-dependent files while Ollama is down; rule and
                 # cache-covered files can still be processed offline
                 if llm is None:
                     try:
-                        hold = needs_model(path, cfg, db)
+                        sig = (path.stat().st_size, path.stat().st_mtime)
                     except OSError:
-                        hold = False
-                    if hold:
+                        sig = None
+                    if sig is None or hold_cache.get(p, (None, None))[0] != sig:
+                        try:
+                            hold_cache[p] = (sig, needs_model(path, cfg, db))
+                        except OSError:
+                            hold_cache[p] = (sig, True)
+                    if hold_cache[p][1]:
                         continue
                 ok = _process_path(Path(p), cfg, db, llm, dry=False)
                 db.set_status(p, "done" if ok else "failed")

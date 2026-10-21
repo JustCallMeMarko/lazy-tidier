@@ -57,14 +57,15 @@ def is_stable(path: Path, polls: int = 3, interval: float = 2.0) -> bool:
 def needs_model(path: Path, cfg: Config, db: DB) -> bool:
     """False when the file can be routed without a model (rule, cache hit,
     or nothing extractable — those go to _Review without a model call).
-    Missing/unreadable files return False; callers must tolerate the race."""
+    Unreadable files return True (held pending — likely a transient error);
+    callers should check existence first."""
     if rules.fast_path(path):
         return False
     try:
         if db.cache_get(mover.sha256_of(path)) is not None:
             return False
     except OSError:
-        return False
+        return True
     result = extract.extract(path)
     extract.cleanup(result)
     return bool(result.text or result.image_path)
