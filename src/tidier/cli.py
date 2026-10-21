@@ -71,6 +71,8 @@ def run(config: Path | None = typer.Option(None, "--config", "-c")):
         while True:
             if llm is None:
                 llm = _llm(cfg)
+            else:
+                hold_cache.clear()  # only used while Ollama is down
             for p in db.pending():
                 path = Path(p)
                 if not path.is_file():
@@ -81,7 +83,9 @@ def run(config: Path | None = typer.Option(None, "--config", "-c")):
                 # cache-covered files can still be processed offline
                 if llm is None:
                     try:
-                        sig = (path.stat().st_size, path.stat().st_mtime)
+                        st = path.stat()
+                        # ctime changes on chmod, so restored access re-triggers the check
+                        sig = (st.st_size, st.st_mtime, st.st_ctime)
                     except OSError:
                         sig = None
                     if sig is None or hold_cache.get(p, (None, None))[0] != sig:
@@ -92,6 +96,7 @@ def run(config: Path | None = typer.Option(None, "--config", "-c")):
                     if hold_cache[p][1]:
                         continue
                 ok = _process_path(Path(p), cfg, db, llm, dry=False)
+                hold_cache.pop(p, None)
                 db.set_status(p, "done" if ok else "failed")
             time.sleep(1)
     except KeyboardInterrupt:
